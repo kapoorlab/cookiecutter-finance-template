@@ -41,13 +41,19 @@ cookiecutter gh:{{ cookiecutter.github_username }}/cookiecutter-finance-template
 ├── README.md
 ├── requirements.txt
 ├── .gitignore
-├── {{ script_name }}.py          # Main analysis script
-├── update_prices.py              # Price update script
+├── {{ script_name }}_{{ analysis_year }}.py    # Main analysis script
+├── update_prices.py                             # Price update script
 └── conf/
     ├── __init__.py
-    ├── {{ config_name }}.py      # Dataclass configuration
-    └── {{ config_name }}.yaml    # Portfolio positions
+    ├── {{ config_name }}.py                     # Dataclass configuration
+    └── {{ config_name }}.yaml                   # Portfolio positions
 ```
+
+## Hooks
+
+The template includes pre and post generation hooks:
+- `pre_gen_project.py`: Validates script and config names
+- `post_gen_project.py`: Initializes git repo and prints next steps
 
 ## Author
 
