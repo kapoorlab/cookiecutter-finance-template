@@ -26,13 +26,15 @@ cookiecutter gh:{{ cookiecutter.github_username }}/cookiecutter-finance-template
 |----------|-------------|---------|
 | `full_name` | Your name | Varun Kapoor |
 | `email` | Your email | randomaccessiblekapoor@gmail.com |
-| `github_username` | GitHub username | Kapoorlabs-CAPED |
+| `github_username_or_organization` | GitHub username or org | Kapoorlabs-CAPED |
 | `project_name` | Project name | my-portfolio |
+| `github_repository_url` | GitHub repo URL | auto-generated or "provide later" |
 | `script_name` | Main script name | portfolio |
 | `config_name` | Config file name | scenario_portfolio |
 | `analysis_year` | Year for analysis | 2026 |
 | `short_description` | Project description | Hydra-based portfolio tracker |
-| `license` | License type | MIT |
+| `install_precommit` | Install pre-commit hooks | y |
+| `license` | License type | BSD-3, MIT, Mozilla, Apache, LGPL, GPL |
 
 ## Generated Project Structure
 

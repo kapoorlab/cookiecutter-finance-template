@@ -1,12 +1,21 @@
 {
     "full_name": "Varun Kapoor",
     "email": "randomaccessiblekapoor@gmail.com",
-    "github_username": "Kapoorlabs-CAPED",
+    "github_username_or_organization": "Kapoorlabs-CAPED",
     "project_name": "my-portfolio",
+    "github_repository_url": ["https://github.com/{{cookiecutter.github_username_or_organization}}/{{cookiecutter.project_name}}", "provide later"],
     "project_slug": "{{ cookiecutter.project_name|lower|replace(' ', '_')|replace('-', '_') }}",
     "script_name": "portfolio",
     "config_name": "scenario_portfolio",
     "analysis_year": "2026",
     "short_description": "Hydra-based portfolio tracker with scenario projections",
-    "license": ["MIT", "BSD-3", "Apache-2.0"]
+    "install_precommit": "y",
+    "license": [
+        "BSD-3",
+        "MIT",
+        "Mozilla Public License 2.0",
+        "Apache Software License 2.0",
+        "GNU LGPL v3.0",
+        "GNU GPL v3.0"
+    ]
 }
