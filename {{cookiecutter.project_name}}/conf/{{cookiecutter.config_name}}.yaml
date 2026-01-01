@@ -1,0 +1,33 @@
+# Portfolio Analysis Configuration - {{ cookiecutter.analysis_year }}
+defaults:
+  - portfolio_base
+  - _self_
+
+settings:
+  usd_to_eur: 0.85
+  base_currency: EUR
+  analysis_year: {{ cookiecutter.analysis_year }}
+
+monitoring:
+  last_update: "{{ cookiecutter.analysis_year }}-01-01"
+  save_history: true
+  history_file: portfolio_history.csv
+
+output:
+  save_plots: true
+  output_dir: results
+  verbose: true
+
+# Portfolio positions
+# When closing a position: set is_open: false and set sell_price_eur
+positions:
+  - ticker: EXAMPLE
+    shares: 100
+    buy_price_eur: 50.00
+    current_price_eur: 55.00
+    target_low_eur: 40.00
+    target_high_eur: 70.00
+    currency: EUR
+    is_open: true
+    sell_price_eur: null
+    notes: "Example position - replace with your own"
