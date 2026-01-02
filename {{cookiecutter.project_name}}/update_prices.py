@@ -1,14 +1,16 @@
 """
 Update Portfolio Prices from Yahoo Finance
 
-Fetches current stock prices and USD/EUR exchange rate, then updates the YAML config.
+Fetches current stock prices, analyst targets, and USD/EUR exchange rate,
+then updates the YAML config. Reads ticker mappings directly from the YAML.
 
 Usage:
-    python update_prices.py              # Update prices and show changes
+    python update_prices.py              # Update prices and analyst targets
     python update_prices.py --dry-run    # Show what would change without writing
+    python update_prices.py --no-targets # Skip fetching analyst targets
 
 Requirements:
-    pip install yfinance
+    pip install yfinance pyyaml
 """
 
 import argparse
@@ -16,18 +18,15 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+import yaml
 import yfinance as yf
 
-# Mapping from portfolio ticker to Yahoo Finance ticker
-# Add your tickers here: "YOUR_TICKER": "YAHOO_TICKER"
-TICKER_MAP = {
-    "EXAMPLE": "AAPL",  # Example mapping - replace with your own
-}
 
-# Which tickers are in USD (need conversion to EUR)
-USD_TICKERS = {
-    "EXAMPLE",  # Add tickers that trade in USD
-}
+def load_positions_from_yaml(yaml_path: Path) -> list[dict]:
+    """Load positions from YAML config file."""
+    content = yaml_path.read_text()
+    config = yaml.safe_load(content)
+    return config.get("positions", [])
 
 
 def fetch_usd_eur_rate() -> float:
@@ -41,14 +40,14 @@ def fetch_usd_eur_rate() -> float:
     return usd_to_eur
 
 
-def fetch_stock_prices(tickers: list[str]) -> dict[str, float]:
+def fetch_stock_prices(yahoo_tickers: list[str]) -> dict[str, float]:
     """Fetch current stock prices from Yahoo Finance."""
     prices = {}
-    yahoo_tickers = list({TICKER_MAP.get(t, t) for t in tickers})
+    unique_tickers = list(set(yahoo_tickers))
 
-    print(f"Fetching prices for: {', '.join(yahoo_tickers)}")
+    print(f"Fetching prices for: {', '.join(unique_tickers)}")
 
-    for yahoo_ticker in yahoo_tickers:
+    for yahoo_ticker in unique_tickers:
         try:
             ticker = yf.Ticker(yahoo_ticker)
             data = ticker.history(period="1d")
@@ -62,17 +61,14 @@ def fetch_stock_prices(tickers: list[str]) -> dict[str, float]:
     return prices
 
 
-def fetch_analyst_targets(tickers: list[str]) -> dict[str, dict]:
-    """Fetch analyst price targets from Yahoo Finance.
-
-    Returns dict with: targetHighPrice, targetLowPrice, targetMeanPrice, numberOfAnalystOpinions
-    """
+def fetch_analyst_targets(yahoo_tickers: list[str]) -> dict[str, dict]:
+    """Fetch analyst price targets from Yahoo Finance."""
     targets = {}
-    yahoo_tickers = list({TICKER_MAP.get(t, t) for t in tickers})
+    unique_tickers = list(set(yahoo_tickers))
 
-    print(f"Fetching analyst targets for: {', '.join(yahoo_tickers)}")
+    print(f"Fetching analyst targets for: {', '.join(unique_tickers)}")
 
-    for yahoo_ticker in yahoo_tickers:
+    for yahoo_ticker in unique_tickers:
         try:
             ticker = yf.Ticker(yahoo_ticker)
             info = ticker.info
@@ -89,9 +85,11 @@ def fetch_analyst_targets(tickers: list[str]) -> dict[str, dict]:
 
             if target_data:
                 targets[yahoo_ticker] = target_data
-                print(f"  {yahoo_ticker}: Low ${target_data.get('low', 'N/A')}, "
-                      f"Mean ${target_data.get('mean', 'N/A')}, High ${target_data.get('high', 'N/A')} "
-                      f"({target_data.get('analysts', '?')} analysts)")
+                print(
+                    f"  {yahoo_ticker}: Low ${target_data.get('low', 'N/A')}, "
+                    f"Mean ${target_data.get('mean', 'N/A')}, High ${target_data.get('high', 'N/A')} "
+                    f"({target_data.get('analysts', '?')} analysts)"
+                )
             else:
                 print(f"  {yahoo_ticker}: No analyst data available")
         except Exception as e:
@@ -100,8 +98,14 @@ def fetch_analyst_targets(tickers: list[str]) -> dict[str, dict]:
     return targets
 
 
-def update_yaml_file(yaml_path: Path, prices: dict, usd_to_eur: float,
-                     targets: dict = None, dry_run: bool = False):
+def update_yaml_file(
+    yaml_path: Path,
+    positions: list[dict],
+    prices: dict,
+    usd_to_eur: float,
+    targets: dict = None,
+    dry_run: bool = False,
+):
     """Update the YAML config file with new prices and analyst targets."""
     content = yaml_path.read_text()
     original_content = content
@@ -114,80 +118,94 @@ def update_yaml_file(yaml_path: Path, prices: dict, usd_to_eur: float,
     if old_rate_match:
         old_rate = float(old_rate_match.group(1))
         if abs(old_rate - usd_to_eur) > 0.001:
-            content = re.sub(r"(usd_to_eur:\s*)[\d.]+", f"\\g<1>{usd_to_eur:.4f}", content)
+            content = re.sub(
+                r"(usd_to_eur:\s*)[\d.]+", f"\\g<1>{usd_to_eur:.4f}", content
+            )
             changes.append(f"USD/EUR: {old_rate:.4f} -> {usd_to_eur:.4f}")
 
     # Update last_update date
     today = datetime.now().strftime("%Y-%m-%d")
-    content = re.sub(r'(last_update:\s*")[^"]*(")', f"\\g<1>{today}\\2", content)
+    content = re.sub(
+        r'(last_update:\s*")[^"]*(")', f"\\g<1>{today}\\2", content
+    )
 
-    # Update each position's current_price_eur and analyst targets (only open positions)
-    for portfolio_ticker, yahoo_ticker in TICKER_MAP.items():
-        # Find this ticker's block and check if it's open
-        block_pattern = rf"(- ticker: {portfolio_ticker}\s+.*?)(?=\n  - ticker:|\Z)"
-        block_match = re.search(block_pattern, content, re.DOTALL)
+    # Update each position
+    for pos in positions:
+        ticker = pos.get("ticker", "")
+        yahoo_ticker = pos.get("yahoo_ticker", "")
+        currency = pos.get("currency", "EUR")
+        is_open = pos.get("is_open", True)
 
-        if not block_match:
+        if not yahoo_ticker or not is_open:
             continue
 
-        block = block_match.group(1)
-
-        # Skip closed positions
-        if "is_open: false" in block:
-            continue
+        needs_conversion = currency == "USD"
 
         # Update current price if available
         if yahoo_ticker in prices:
-            price_usd = prices[yahoo_ticker]
-
-            # Convert to EUR if needed
-            if portfolio_ticker in USD_TICKERS:
-                price_eur = price_usd * usd_to_eur
-            else:
-                price_eur = price_usd
+            price_raw = prices[yahoo_ticker]
+            price_eur = price_raw * usd_to_eur if needs_conversion else price_raw
 
             # Find and update this ticker's current_price_eur in the YAML
-            pattern = rf"(- ticker: {portfolio_ticker}\s+.*?current_price_eur:\s*)([\d.]+)"
+            pattern = rf"(- ticker: {ticker}\s+.*?current_price_eur:\s*)([\d.]+)"
             match = re.search(pattern, content, re.DOTALL)
 
             if match:
                 old_price = float(match.group(2))
                 if abs(old_price - price_eur) > 0.01:
-                    content = re.sub(pattern, f"\\g<1>{price_eur:.5f}", content, flags=re.DOTALL)
-                    pct_change = ((price_eur - old_price) / old_price) * 100
-                    changes.append(f"{portfolio_ticker}: €{old_price:.2f} -> €{price_eur:.2f} ({pct_change:+.1f}%)")
+                    content = re.sub(
+                        pattern,
+                        f"\\g<1>{price_eur:.5f}",
+                        content,
+                        flags=re.DOTALL,
+                    )
+                    pct_change = ((price_eur - old_price) / old_price) * 100 if old_price > 0 else 0
+                    changes.append(
+                        f"{ticker}: €{old_price:.2f} -> €{price_eur:.2f} ({pct_change:+.1f}%)"
+                    )
 
         # Update analyst targets if available
         if targets and yahoo_ticker in targets:
             target_data = targets[yahoo_ticker]
 
-            # Convert to EUR if needed
-            if portfolio_ticker in USD_TICKERS:
-                high_eur = target_data.get("high", 0) * usd_to_eur if target_data.get("high") else None
-                low_eur = target_data.get("low", 0) * usd_to_eur if target_data.get("low") else None
-            else:
-                high_eur = target_data.get("high")
-                low_eur = target_data.get("low")
+            high_raw = target_data.get("high")
+            low_raw = target_data.get("low")
 
-            # Update best_case_price (analyst high)
-            if high_eur:
-                pattern = rf"(- ticker: {portfolio_ticker}\s+.*?best_case_price:\s*)([\d.]+)"
+            # Update target_high_eur (analyst high)
+            if high_raw:
+                high_eur = high_raw * usd_to_eur if needs_conversion else high_raw
+                pattern = rf"(- ticker: {ticker}\s+.*?target_high_eur:\s*)([\d.]+)"
                 match = re.search(pattern, content, re.DOTALL)
                 if match:
-                    old_best = float(match.group(2))
-                    if abs(old_best - high_eur) > 0.01:
-                        content = re.sub(pattern, f"\\g<1>{high_eur:.5f}", content, flags=re.DOTALL)
-                        target_changes.append(f"{portfolio_ticker} best: €{old_best:.2f} -> €{high_eur:.2f}")
+                    old_high = float(match.group(2))
+                    if abs(old_high - high_eur) > 0.01:
+                        content = re.sub(
+                            pattern,
+                            f"\\g<1>{high_eur:.5f}",
+                            content,
+                            flags=re.DOTALL,
+                        )
+                        target_changes.append(
+                            f"{ticker} high: €{old_high:.2f} -> €{high_eur:.2f}"
+                        )
 
-            # Update worst_case_price (analyst low)
-            if low_eur:
-                pattern = rf"(- ticker: {portfolio_ticker}\s+.*?worst_case_price:\s*)([\d.]+)"
+            # Update target_low_eur (analyst low)
+            if low_raw:
+                low_eur = low_raw * usd_to_eur if needs_conversion else low_raw
+                pattern = rf"(- ticker: {ticker}\s+.*?target_low_eur:\s*)([\d.]+)"
                 match = re.search(pattern, content, re.DOTALL)
                 if match:
-                    old_worst = float(match.group(2))
-                    if abs(old_worst - low_eur) > 0.01:
-                        content = re.sub(pattern, f"\\g<1>{low_eur:.5f}", content, flags=re.DOTALL)
-                        target_changes.append(f"{portfolio_ticker} worst: €{old_worst:.2f} -> €{low_eur:.2f}")
+                    old_low = float(match.group(2))
+                    if abs(old_low - low_eur) > 0.01:
+                        content = re.sub(
+                            pattern,
+                            f"\\g<1>{low_eur:.5f}",
+                            content,
+                            flags=re.DOTALL,
+                        )
+                        target_changes.append(
+                            f"{ticker} low: €{old_low:.2f} -> €{low_eur:.2f}"
+                        )
 
     # Print changes
     if changes:
@@ -211,9 +229,17 @@ def update_yaml_file(yaml_path: Path, prices: dict, usd_to_eur: float,
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Update portfolio prices from Yahoo Finance")
-    parser.add_argument("--dry-run", action="store_true", help="Show changes without writing")
-    parser.add_argument("--no-targets", action="store_true", help="Skip fetching analyst targets")
+    parser = argparse.ArgumentParser(
+        description="Update portfolio prices from Yahoo Finance"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Show changes without writing"
+    )
+    parser.add_argument(
+        "--no-targets",
+        action="store_true",
+        help="Skip fetching analyst targets",
+    )
     args = parser.parse_args()
 
     script_dir = Path(__file__).parent
@@ -227,6 +253,19 @@ def main():
     print("PORTFOLIO PRICE UPDATE")
     print("=" * 60)
 
+    # Load positions from YAML
+    print("\nLoading positions from YAML...")
+    positions = load_positions_from_yaml(yaml_path)
+    open_positions = [p for p in positions if p.get("is_open", True) and p.get("yahoo_ticker")]
+    print(f"  Found {len(open_positions)} open positions with Yahoo tickers")
+
+    if not open_positions:
+        print("Error: No open positions with yahoo_ticker found")
+        return 1
+
+    # Get list of Yahoo tickers
+    yahoo_tickers = [p["yahoo_ticker"] for p in open_positions]
+
     # Fetch exchange rate
     print("\nFetching USD/EUR rate...")
     try:
@@ -238,8 +277,7 @@ def main():
 
     # Fetch stock prices
     print("\nFetching stock prices...")
-    tickers = list(TICKER_MAP.keys())
-    prices = fetch_stock_prices(tickers)
+    prices = fetch_stock_prices(yahoo_tickers)
 
     if not prices:
         print("Error: Could not fetch any prices")
@@ -249,10 +287,12 @@ def main():
     targets = None
     if not args.no_targets:
         print("\nFetching analyst targets...")
-        targets = fetch_analyst_targets(tickers)
+        targets = fetch_analyst_targets(yahoo_tickers)
 
     # Update YAML
-    update_yaml_file(yaml_path, prices, usd_to_eur, targets=targets, dry_run=args.dry_run)
+    update_yaml_file(
+        yaml_path, positions, prices, usd_to_eur, targets=targets, dry_run=args.dry_run
+    )
 
     print("\n" + "=" * 60)
 

@@ -20,14 +20,16 @@ output:
 
 # Portfolio positions
 # When closing a position: set is_open: false and set sell_price_eur
+# yahoo_ticker: Use Yahoo Finance ticker (e.g., AAPL, MSFT, ATO.PA for Paris, HAG.DE for Frankfurt)
 positions:
   - ticker: EXAMPLE
+    yahoo_ticker: AAPL
     shares: 100
     buy_price_eur: 50.00
     current_price_eur: 55.00
     target_low_eur: 40.00
     target_high_eur: 70.00
-    currency: EUR
+    currency: USD
     is_open: true
     sell_price_eur: null
     notes: "Example position - replace with your own"
