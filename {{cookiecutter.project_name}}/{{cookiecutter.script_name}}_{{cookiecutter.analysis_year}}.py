@@ -8,13 +8,15 @@ Hydra-based portfolio tracker with:
 - Results organized by month/year
 
 Usage:
-    python {{ cookiecutter.script_name }}.py                    # Run analysis
-    python {{ cookiecutter.script_name }}.py mode=update        # Update prices
-    python {{ cookiecutter.script_name }}.py mode=report        # Generate report
+    python {{ cookiecutter.script_name }}_{{ cookiecutter.analysis_year }}.py                # Run analysis (auto-updates prices first)
+    python {{ cookiecutter.script_name }}_{{ cookiecutter.analysis_year }}.py --no-update    # Skip price update
 """
 
 import os
+import subprocess
+import sys
 from datetime import datetime
+from pathlib import Path
 
 import hydra
 import matplotlib
@@ -25,6 +27,35 @@ from conf.{{ cookiecutter.config_name }} import {{ cookiecutter.config_name }}
 from hydra.core.config_store import ConfigStore
 
 matplotlib.use("Agg")
+
+
+def run_price_update():
+    """Run update_prices.py before analysis."""
+    script_dir = Path(__file__).parent
+    update_script = script_dir / "update_prices.py"
+
+    if not update_script.exists():
+        print("Warning: update_prices.py not found, skipping price update")
+        return False
+
+    print("=" * 80)
+    print("UPDATING PRICES AND ANALYST TARGETS")
+    print("=" * 80)
+
+    try:
+        result = subprocess.run(
+            [sys.executable, str(update_script)],
+            cwd=str(script_dir),
+            check=True,
+        )
+        return result.returncode == 0
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: Price update failed with code {e.returncode}")
+        return False
+    except Exception as e:
+        print(f"Warning: Could not run price update: {e}")
+        return False
+
 
 # Register dataclass with ConfigStore
 configstore = ConfigStore.instance()
@@ -445,7 +476,7 @@ def print_summary(df_open, df_closed, year):
 @hydra.main(version_base="1.3", config_path="conf", config_name="{{ cookiecutter.config_name }}")
 def main(cfg: {{ cookiecutter.config_name }}):
     """Main entry point with Hydra configuration."""
-    print("=" * 80)
+    print("\n" + "=" * 80)
     print("PORTFOLIO ANALYSIS")
     print("=" * 80)
 
@@ -492,4 +523,14 @@ def main(cfg: {{ cookiecutter.config_name }}):
 
 
 if __name__ == "__main__":
+    # Check for --no-update flag before Hydra takes over
+    skip_update = "--no-update" in sys.argv
+    if skip_update:
+        sys.argv.remove("--no-update")
+
+    # Run price update first (unless skipped)
+    if not skip_update:
+        run_price_update()
+        print("")  # Add spacing
+
     main()
